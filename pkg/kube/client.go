@@ -40,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
@@ -453,6 +454,21 @@ func updateResource(c *Client, target *resource.Info, currentObj runtime.Object,
 	return nil
 }
 
+func (c *Client) waitForJobPolling(ctx context.Context, timeout time.Duration, info *resource.Info) error {
+	kcs, err := c.Factory.KubernetesClientSet()
+	if err != nil {
+		return err
+	}
+	// wait for job status to change
+	return wait.Poll(2*time.Second, timeout, func() (bool, error) {
+		job, err := kcs.BatchV1().Jobs(info.Namespace).Get(ctx, info.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		return c.waitForJob(job, info.Name)
+	})
+}
+
 func (c *Client) watchUntilReady(timeout time.Duration, info *resource.Info) error {
 	kind := info.Mapping.GroupVersionKind.Kind
 	switch kind {
@@ -462,6 +478,13 @@ func (c *Client) watchUntilReady(timeout time.Duration, info *resource.Info) err
 	}
 
 	c.Log("Watching for changes to %s %s with timeout of %v", kind, info.Name, timeout)
+
+	ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if kind == "Job" {
+		return c.waitForJobPolling(ctx, timeout, info)
+	}
 
 	// Use a selector on the name of the resource. This should be unique for the
 	// given version and kind
@@ -477,8 +500,6 @@ func (c *Client) watchUntilReady(timeout time.Duration, info *resource.Info) err
 	// In the future, we might want to add some special logic for types
 	// like Ingress, Volume, etc.
 
-	ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), timeout)
-	defer cancel()
 	_, err = watchtools.UntilWithSync(ctx, lw, &unstructured.Unstructured{}, nil, func(e watch.Event) (bool, error) {
 		// Make sure the incoming object is versioned as we use unstructured
 		// objects when we build manifests
