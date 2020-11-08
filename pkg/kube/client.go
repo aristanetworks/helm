@@ -454,18 +454,29 @@ func updateResource(c *Client, target *resource.Info, currentObj runtime.Object,
 	return nil
 }
 
-func (c *Client) waitForJobPolling(ctx context.Context, timeout time.Duration, info *resource.Info) error {
+func (c *Client) waitForPolling(ctx context.Context, timeout time.Duration, info *resource.Info) error {
 	kcs, err := c.Factory.KubernetesClientSet()
 	if err != nil {
 		return err
 	}
-	// wait for job status to change
-	return wait.Poll(2*time.Second, timeout, func() (bool, error) {
-		job, err := kcs.BatchV1().Jobs(info.Namespace).Get(ctx, info.Name, metav1.GetOptions{})
-		if err != nil {
-			return false, err
+	// wait for pod/job status to change
+	return wait.Poll(10*time.Second, timeout, func() (bool, error) {
+		switch info.Mapping.GroupVersionKind.Kind {
+		case "Job":
+			job, err := kcs.BatchV1().Jobs(info.Namespace).Get(ctx, info.Name, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+			return c.waitForJob(job, info.Name)
+		case "Pod":
+			pod, err := kcs.CoreV1().Pods(info.Namespace).Get(ctx, info.Name, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
+			return c.waitForPodSuccess(pod, info.Name)
+		default:
+			panic(fmt.Errorf("unhandled kind: %v", info.Mapping.GroupVersionKind.Kind))
 		}
-		return c.waitForJob(job, info.Name)
 	})
 }
 
@@ -482,8 +493,8 @@ func (c *Client) watchUntilReady(timeout time.Duration, info *resource.Info) err
 	ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), timeout)
 	defer cancel()
 
-	if kind == "Job" {
-		return c.waitForJobPolling(ctx, timeout, info)
+	if kind == "Job" || kind == "Pod" { // this is essentially "if true"
+		return c.waitForPolling(ctx, timeout, info)
 	}
 
 	// Use a selector on the name of the resource. This should be unique for the
