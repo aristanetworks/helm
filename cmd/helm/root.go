@@ -62,8 +62,8 @@ Environment variables:
 | $HELM_REPOSITORY_CONFIG            | set the path to the repositories file.                                            |
 | $KUBECONFIG                        | set an alternative Kubernetes configuration file (default "~/.kube/config")       |
 | $HELM_KUBEAPISERVER                | set the Kubernetes API Server Endpoint for authentication                         |
-| $HELM_KUBEASGROUPS                 | set the Username to impersonate for the operation.                                |
-| $HELM_KUBEASUSER                   | set the Groups to use for impoersonation using a comma-separated list.            |
+| $HELM_KUBEASGROUPS                 | set the Groups to use for impersonation using a comma-separated list.             |
+| $HELM_KUBEASUSER                   | set the Username to impersonate for the operation.                                |
 | $HELM_KUBECONTEXT                  | set the name of the kubeconfig context.                                           |
 | $HELM_KUBETOKEN                    | set the Bearer KubeToken used for authentication.                                 |
 
@@ -252,8 +252,10 @@ func checkForExpiredRepos(repofile string) {
 		if url := r.URL; strings.Contains(url, exp.old) {
 			fmt.Fprintf(
 				os.Stderr,
-				"WARNING: %q is deprecated for %q and will be deleted Nov. 13, 2020.\nWARNING: You should switch to %q\n",
+				"WARNING: %q is deprecated for %q and will be deleted Nov. 13, 2020.\nWARNING: You should switch to %q via:\nWARNING: helm repo add %q %q --force-update\n",
 				exp.old,
+				exp.name,
+				exp.new,
 				exp.name,
 				exp.new,
 			)

@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	cachetools "k8s.io/client-go/tools/cache"
 	watchtools "k8s.io/client-go/tools/watch"
@@ -61,6 +62,8 @@ type Client struct {
 	Log     func(string, ...interface{})
 	// Namespace allows to bypass the kubeconfig file for the choice of the namespace
 	Namespace string
+
+	kubeClient *kubernetes.Clientset
 }
 
 var addToScheme sync.Once
@@ -88,9 +91,19 @@ func New(getter genericclioptions.RESTClientGetter) *Client {
 
 var nopLogger = func(_ string, _ ...interface{}) {}
 
+// getKubeClient get or create a new KubernetesClientSet
+func (c *Client) getKubeClient() (*kubernetes.Clientset, error) {
+	var err error
+	if c.kubeClient == nil {
+		c.kubeClient, err = c.Factory.KubernetesClientSet()
+	}
+
+	return c.kubeClient, err
+}
+
 // IsReachable tests connectivity to the cluster
 func (c *Client) IsReachable() error {
-	client, err := c.Factory.KubernetesClientSet()
+	client, err := c.getKubeClient()
 	if err == genericclioptions.ErrEmptyConfig {
 		// re-replace kubernetes ErrEmptyConfig error with a friendy error
 		// moar workarounds for Kubernetes API breaking.
@@ -116,7 +129,7 @@ func (c *Client) Create(resources ResourceList) (*Result, error) {
 
 // Wait up to the given timeout for the specified resources to be ready
 func (c *Client) Wait(resources ResourceList, timeout time.Duration) error {
-	cs, err := c.Factory.KubernetesClientSet()
+	cs, err := c.getKubeClient()
 	if err != nil {
 		return err
 	}
@@ -604,7 +617,7 @@ func scrubValidationError(err error) error {
 // WaitAndGetCompletedPodPhase waits up to a timeout until a pod enters a completed phase
 // and returns said phase (PodSucceeded or PodFailed qualify).
 func (c *Client) WaitAndGetCompletedPodPhase(name string, timeout time.Duration) (v1.PodPhase, error) {
-	client, err := c.Factory.KubernetesClientSet()
+	client, err := c.getKubeClient()
 	if err != nil {
 		return v1.PodUnknown, err
 	}
